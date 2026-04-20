@@ -1,0 +1,15 @@
+package reve_back.infrastructure.web.dto;
+
+import java.util.List;
+
+public record ProductCreationRequest(
+        String brand,
+        String line,
+        String concentration,
+        Double price,
+        Integer unitVolumeMl,
+        Boolean allowPromotions,
+        List<BottleCreationRequest> bottles,
+        List<DecantRequest> decants
+) {
+}
