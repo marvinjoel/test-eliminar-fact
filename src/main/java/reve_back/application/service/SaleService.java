@@ -523,22 +523,37 @@ public class SaleService implements CreateSaleUseCase {
                     1
             ));
 
-            registerInventoryMovement(decantBottle.id(), req.quantity(), "ML", userId);
 
-        } else {
+        } if (currentRem-volumeNeeded == 0){
+
+            bottleRepositoryPort.save(new Bottle(
+                    decantBottle.id(),
+                    decantBottle.productId(),
+                    whId,
+                    "DECANT_AGOTADA",
+                    decantBottle.barcode(),
+                    0,
+                    0,
+                    0
+            ));
+
+        } else{
             log.info("    >> ESCENARIO B: Stock suficiente.");
             int nextRemaining = currentRem - volumeNeeded;
 
             bottleRepositoryPort.save(new Bottle(
-                    decantBottle.id(), decantBottle.productId(), whId,
+                    decantBottle.id(),
+                    decantBottle.productId(),
+                    whId,
                     nextRemaining == 0 ? "DECANT_AGOTADA" : "DECANTADA",
-                    decantBottle.barcode(), decantBottle.volumeMl(),
+                    decantBottle.barcode(),
+                    decantBottle.volumeMl(),
                     nextRemaining,
                     1
             ));
-
-            registerInventoryMovement(decantBottle.id(), req.quantity(), "ML", userId);
         }
+
+        registerInventoryMovement(decantBottle.id(), req.quantity(), "ML", userId);
 
         return new SaleItem(null, dp.productId(), dp.id(), product.brand() +" "+ product.line(), null, req.quantity(), req.price(),
                 BigDecimal.ZERO, BigDecimal.ZERO, null, dp.volumeMl(), req.blockedPromo(), req.forcePromo(), "NONE");
@@ -566,11 +581,19 @@ public class SaleService implements CreateSaleUseCase {
 
         log.info("✅ Candidata seleccionada: Botella ID {}", sealedBottle.id());
 
+        Product product = productRepositoryPort.findById(productId)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado al reabastecer"));
+
+        // B. Obtenemos el volumen oficial (Ej: 100ml, 750ml)
+        // Asumo que tu entidad Product tiene un método volumeMl() o similar.
+        int productOfficialVolume = product.volumeProductsMl();
+
         // ---------------------------------------------------------------
         // 2. Actualizar la SELLADA (Restar 1 y ajustar volúmenes si es 0)
         // ---------------------------------------------------------------
         int newSealedQty = sealedBottle.quantity() - 1;
         boolean isDepleted = newSealedQty == 0; // ¿Se acabó?
+        int newVolumenSellada = sealedBottle.volumeMl()-productOfficialVolume;
 
         bottleRepositoryPort.save(new Bottle(
                 sealedBottle.id(),
@@ -578,8 +601,8 @@ public class SaleService implements CreateSaleUseCase {
                 whId,
                 isDepleted ? "AGOTADA" : "SELLADA", // Nuevo Estado
                 sealedBottle.barcode(),
-                isDepleted ? 0 : sealedBottle.volumeMl(),
-                isDepleted ? 0 : sealedBottle.remainingVolumeMl(),
+                isDepleted ? 0 : newVolumenSellada,
+                isDepleted ? 0 : newVolumenSellada,
                 newSealedQty
         ));
 
@@ -587,12 +610,7 @@ public class SaleService implements CreateSaleUseCase {
 
         registerInventoryMovement(sealedBottle.id(), 1, "UNIT", userId);
 
-        Product product = productRepositoryPort.findById(productId)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado al reabastecer"));
 
-        // B. Obtenemos el volumen oficial (Ej: 100ml, 750ml)
-        // Asumo que tu entidad Product tiene un método volumeMl() o similar.
-        int productOfficialVolume = product.volumeProductsMl();
 
         log.info("Recargando Decant ID {}. Volumen Oficial del Producto: {}ml",
                 targetDecantBottle.id(), productOfficialVolume);

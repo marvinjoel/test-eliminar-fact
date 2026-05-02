@@ -230,62 +230,25 @@ public class ProductService implements ListProductsUseCase, CreateProductUseCase
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ProductDetailsResponse updateProduct(Long id, ProductUpdateRequest request) {
+
         Product existingProduct = productRepositoryPort.findById(id)
                 .orElseThrow(() -> new RuntimeException("No existe el producto a actualizar"));
 
-        String brand = request.brand().toUpperCase().trim();
-        String line = request.line().toUpperCase().trim();
-        String concentration = request.concentration().toUpperCase().trim();
+        Product productToUpdate = new Product(
+                existingProduct.id(),
+                existingProduct.brand(),
+                existingProduct.line(),
+                existingProduct.concentration(),
+                request.price(),
+                existingProduct.volumeProductsMl(),
+                existingProduct.isActive(),
+                existingProduct.allowPromotions(),
+                existingProduct.createdAt(),
+                existingProduct.updatedAt()
+        );
 
-        List<Bottle> allBottles = bottleRepositoryPort.findAllByProductId(id);
-
-        boolean hasPhysicalStock = allBottles.stream()
-                .anyMatch(b -> !BottlesStatus.AGOTADA.name().equalsIgnoreCase(b.status())
-                        && !BottlesStatus.DECANT_AGOTADA.name().equalsIgnoreCase(b.status()));
-
-        if (hasPhysicalStock) {
-            throw new RuntimeException("No puedes editar propiedades críticas: hay stock físico involucrado.");
-        }
-
-        if (productRepositoryPort.existsByBrandAndLineAndConcentrationAndVolumeProductsMlAndIdNot(
-                brand, line, concentration, request.unitVolumeMl(), id)) {
-            throw new RuntimeException("Ya existe otro producto con los mismos datos: " + brand + " " + line);
-        }
-
-        Product productToUpdate = productDtoMapper.toDomain(id, request, existingProduct);
         productRepositoryPort.save(productToUpdate);
-
-        Map<Long, Bottle> existingBottlesMap = allBottles.stream()
-                .collect(Collectors.toMap(Bottle::warehouseId, b -> b, (e1, e2) -> e1));
-
-        List<Bottle> bottlesToSync = new ArrayList<>();
-        String lastBottleCode = null;
-        if (request.bottles() != null) {
-            for (BottleCreationRequest req : request.bottles()) {
-                Bottle existing = existingBottlesMap.get(req.warehouseId());
-                if (existing != null) {
-                    bottlesToSync.add(new Bottle(existing.id(), id, req.warehouseId(),
-                            req.status() != null ? req.status() : existing.status(),
-                            existing.barcode(),
-                            req.volumeMl() != null ? req.volumeMl() : existing.volumeMl(),
-                            req.remainingVolumeMl() != null ? req.remainingVolumeMl() : existing.remainingVolumeMl(),
-                            req.quantity() != null ? req.quantity() : existing.quantity()));
-                } else {
-                    if (lastBottleCode == null) {
-                        lastBottleCode = bottleRepositoryPort.findLastBarcodeByPrefix("C").orElse(null);
-                    }
-                    String nextCode = BarcodeGenerator.generateNextSequence(lastBottleCode, "C");
-                    lastBottleCode = nextCode;
-
-                    bottlesToSync.add(productDtoMapper.toBottleDomain(req, id, nextCode));
-                }
-            }
-        }
-
-        if (!bottlesToSync.isEmpty()) bottleRepositoryPort.saveAll(bottlesToSync);
-        String lastDecantCode = null;
-
-        if (request.decants() != null) {
+        if (request.decants() != null && !request.decants().isEmpty()) {
             List<DecantPrice> currentDecants = decantPriceRepositoryPort.findAllByProductId(id);
 
             Map<Integer, DecantPrice> existingDecantsMap = currentDecants.stream()
@@ -299,24 +262,15 @@ public class ProductService implements ListProductsUseCase, CreateProductUseCase
                 if (existingDecant != null) {
                     decantsToSave.add(new DecantPrice(
                             existingDecant.id(),
-                            id,
-                            decReq.volumeMl(),
+                            existingDecant.productId(),
+                            existingDecant.volumeMl(),     // INTACTO
                             decReq.price(),
-                            existingDecant.barcode(),
-                            existingDecant.imageBarcode()
+                            existingDecant.barcode(),      // INTACTO
+                            existingDecant.imageBarcode()  // INTACTO
                     ));
-                } else {
-                    if (lastDecantCode == null) {
-                        lastDecantCode = decantPriceRepositoryPort.findLastBarcodeByPrefix("D").orElse(null);
-                    }
-                    String nextCode = BarcodeGenerator.generateNextSequence(lastDecantCode, "D");
-                    lastDecantCode = nextCode;
-
-                    decantsToSave.add(new DecantPrice(null, id, decReq.volumeMl(), decReq.price(), nextCode, null));
                 }
             }
 
-            // C. Guardar usando el método específico de tu puerto
             if (!decantsToSave.isEmpty()) {
                 decantPriceRepositoryPort.saveAllForProduct(id, decantsToSave);
             }
