@@ -18,4 +18,5 @@ public interface BottleRepositoryPort {
     Integer calculateTotalStockByProductId(Long productId);
     Optional<Bottle> findSellableBottle(Long productId, Long warehouseId);
     Optional<String> findLastBarcodeByPrefix(String prefix);
+    List<Bottle> searchSmartBottles(String term, Long warehouseId);
 }

@@ -63,4 +63,15 @@ public interface SpringDataBottleRepository extends JpaRepository<BottleEntity,L
 
     Optional<BottleEntity> findTopByBarcodeStartsWithOrderByBarcodeDesc(String prefix);
 
+    @Query("""
+        SELECT b 
+        FROM BottleEntity b
+        JOIN b.product p
+        WHERE b.status = 'SELLADA'
+          AND b.quantity > 0
+          AND b.warehouse.id = :warehouseId
+          AND LOWER(CONCAT(p.brand, ' ', COALESCE(p.line, ''), ' ', COALESCE(p.concentration, ''))) 
+              LIKE LOWER(CONCAT('%', :term, '%'))
+    """)
+    List<BottleEntity> searchSmartBottles(@Param("term") String term, @Param("warehouseId") Long warehouseId);
 }

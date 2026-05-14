@@ -85,4 +85,13 @@ public class JpaDecantPriceRepositoryAdapter implements DecantPriceRepositoryPor
         List<String> results = repository.findLastBarcode(prefix, PageRequest.of(0, 1));
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
+
+    @Override
+    public List<DecantPrice> searchSmartDecants(String term, Long warehouseId) {
+        var entities = repository.searchSmartDecants(term, warehouseId);
+
+        return entities.stream()
+                .map(mapper::toDomain)
+                .toList();
+    }
 }

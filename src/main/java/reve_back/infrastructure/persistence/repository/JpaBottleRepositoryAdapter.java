@@ -122,5 +122,15 @@ public class JpaBottleRepositoryAdapter implements BottleRepositoryPort {
                 .map(BottleEntity::getBarcode);
     }
 
+    @Override
+    public List<Bottle> searchSmartBottles(String term, Long warehouseId) {
+        var entities = springDataBottleRepository.searchSmartBottles(term, warehouseId);
+
+        // Traducción de Entity a Domain usando el mapper de persistencia
+        return entities.stream()
+                .map(mapper::toDomain)
+                .toList(); // toList() inmutable de Java 16+
+    }
+
 
 }

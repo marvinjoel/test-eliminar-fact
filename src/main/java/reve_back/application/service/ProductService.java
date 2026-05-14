@@ -336,21 +336,35 @@ public class ProductService implements ListProductsUseCase, CreateProductUseCase
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<ProductSearchResponse> searchProducts(String term) {
+        Set<Long> authorizedBranches = getAuthorizedBranchIds();
+        if (authorizedBranches.isEmpty()) return List.of();
+        Long currentWarehouseId = authorizedBranches.iterator().next();
+
         List<ProductSearchResponse> results = new ArrayList<>();
 
-        List<Bottle> bottles = bottleRepositoryPort.searchActiveByProductName(term);
+        // --- LÓGICA SMART SEARCH MULTITOKEN ---
+        // 1. Limpiamos espacios extra
+        String cleanTerm = term.trim().replaceAll("\\s+", " ");
+        // 2. Reemplazamos espacios por % para que el LIKE sea flexible
+        // Ejemplo: "jean le parfum" -> "jean%le%parfum"
+        String flexibleTerm = cleanTerm.replace(" ", "%");
+
+        // 1. Búsqueda de Botellas
+        var bottles = bottleRepositoryPort.searchSmartBottles(flexibleTerm, currentWarehouseId);
         for (Bottle b : bottles) {
-            var p = productRepositoryPort.findById(b.productId()).orElseThrow();
-            Integer totalStock = bottleRepositoryPort.calculateTotalStockByProductId(p.id());
-            results.add(productDtoMapper.toSearchResponse(b, p,totalStock));
+            Integer totalStock = bottleRepositoryPort.calculateTotalStockByProductId(b.productId());
+            Product product = getProductOrThrow(b.productId());
+            results.add(productDtoMapper.toSearchResponse(b, product, totalStock));
         }
 
-        List<DecantPrice> decants = decantPriceRepositoryPort.searchActiveByProductName(term);
+        // 2. Búsqueda de Decants
+        var decants = decantPriceRepositoryPort.searchSmartDecants(flexibleTerm, currentWarehouseId);
         for (DecantPrice d : decants) {
-            var p = productRepositoryPort.findById(d.productId()).orElseThrow();
-            Integer totalStock = bottleRepositoryPort.calculateTotalStockByProductId(p.id());
-            results.add(productDtoMapper.toSearchResponse(d, p,totalStock));
+            Integer totalStock = bottleRepositoryPort.calculateTotalStockByProductId(d.productId());
+            Product product = getProductOrThrow(d.productId());
+            results.add(productDtoMapper.toSearchResponse(d, product, totalStock));
         }
 
         return results;

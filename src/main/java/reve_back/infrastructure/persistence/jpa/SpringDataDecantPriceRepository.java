@@ -31,4 +31,20 @@ public interface SpringDataDecantPriceRepository extends JpaRepository<DecantPri
     List<DecantPriceEntity> findActiveByProductNameLike(@Param("term") String term, Pageable pageable);
     @Query("SELECT d.barcode FROM DecantPriceEntity d WHERE d.barcode LIKE CONCAT(:prefix, '%') ORDER BY d.barcode DESC")
     List<String> findLastBarcode(@Param("prefix") String prefix, Pageable pageable);
+
+    @Query("""
+        SELECT d 
+        FROM DecantPriceEntity d
+        JOIN d.product p
+        WHERE LOWER(CONCAT(p.brand, ' ', COALESCE(p.line, ''), ' ', COALESCE(p.concentration, ''))) 
+              LIKE LOWER(CONCAT('%', :term, '%'))
+          AND EXISTS (
+              SELECT 1 FROM BottleEntity b 
+              WHERE b.product.id = d.product.id 
+                AND b.warehouse.id = :warehouseId
+                AND b.remainingVolumeMl >= d.volumeMl
+                AND b.status IN ('DECANTADA', 'SELLADA')
+          )
+    """)
+    List<DecantPriceEntity> searchSmartDecants(@Param("term") String term, @Param("warehouseId") Long warehouseId);
 }

@@ -159,33 +159,47 @@ public class ProductDtoMapper {
     }
 
     public ProductSearchResponse toSearchResponse(Bottle bottle, Product product,Integer totalStock) {
+        String fullName = String.format("%s %s %s (%dml)",
+                product.brand(),
+                product.line() != null ? product.line() : "",
+                product.concentration() != null ? product.concentration() : "",
+                bottle.volumeMl()).trim().replaceAll("\\s+", " "); // Limpia espacios dobles si hay nulos
+
         return new ProductSearchResponse(
                 bottle.id(),
                 "BOTELLA",
                 product.id(),
                 product.brand(),
                 product.line(),
+                product.concentration(),
                 bottle.volumeMl(),
-                product.price().doubleValue(),
+                java.math.BigDecimal.valueOf(product.price()), // 2. Conversión segura de Double a BigDecimal
                 product.allowPromotions(),
                 totalStock,
-                product.concentration()
+                fullName.toUpperCase() // 3. Se usa la variable local correctamente
         );
     }
 
     // NUEVO: Para Decants en la búsqueda
     public ProductSearchResponse toSearchResponse(DecantPrice decant, Product product,Integer totalStock) {
+        String fullName = String.format("DECANT %s %s %s (%dml)",
+                product.brand(),
+                product.line() != null ? product.line() : "",
+                product.concentration() != null ? product.concentration() : "",
+                decant.volumeMl()).trim().replaceAll("\\s+", " ");
+
         return new ProductSearchResponse(
                 decant.id(),
                 "DECANT",
                 product.id(),
                 product.brand(),
                 product.line(),
+                product.concentration(),
                 decant.volumeMl(),
-                decant.price().doubleValue(),
+                java.math.BigDecimal.valueOf(decant.price()), // Conversión segura a BigDecimal
                 product.allowPromotions(),
                 totalStock,
-                product.concentration()
+                fullName.toUpperCase()
         );
     }
 }
