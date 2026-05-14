@@ -24,12 +24,6 @@ public class ClientEntity {
     @Column(unique = true)
     private String dni;
 
-    @Column(unique = true, length = 11)
-    private String ruc; //FACTURACIÓN (SUNAT)
-
-    @Column(name = "business_name")
-    private String businessName; // Razón Social
-
     private String email;
 
     private String phone;

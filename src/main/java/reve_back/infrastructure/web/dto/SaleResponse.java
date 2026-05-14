@@ -11,13 +11,6 @@ public record SaleResponse(
         String sellerName, // Sugerencia extra: devolver nombre del vendedor en vez de ID
         String clientName, // <--- AGREGAR ESTO (Importante)
         String clientDNI,
-
-        // --- NUEVOS CAMPOS ---
-        String invoiceType,
-        String series,
-        Integer correlative,
-        // ---------------------
-
         BigDecimal totalBruto,
         BigDecimal totalDiscount,
         BigDecimal totalSurcharge,

@@ -4,7 +4,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reve_back.application.ports.in.CreateSaleUseCase;
@@ -14,7 +13,6 @@ import reve_back.domain.model.*;
 import reve_back.infrastructure.persistence.entity.ClientLoyaltyProgressEntity;
 import reve_back.infrastructure.persistence.entity.PromotionEntity;
 import reve_back.infrastructure.persistence.enums.global.PromotionRuleType;
-import reve_back.infrastructure.persistence.jpa.SpringDataBillingSequenceRepository;
 import reve_back.infrastructure.persistence.jpa.SpringDataPromotionRepository;
 import reve_back.infrastructure.web.dto.*;
 
@@ -43,19 +41,6 @@ public class SaleService implements CreateSaleUseCase {
 
     private final CashSessionRepositoryPort cashSessionPort;
     private final ManageCashSessionUseCase manageCashSessionUseCase;
-
-    private final SpringDataBillingSequenceRepository billingSequenceRepository;
-
-    private final ElectronicInvoicingPort electronicInvoicingPort;
-
-    @Value("${company.ruc}")
-    private String companyRuc;
-
-    @Value("${company.name}")
-    private String companyName;
-
-    @Value("${company.address}")
-    private String companyAddress;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -268,8 +253,6 @@ public class SaleService implements CreateSaleUseCase {
         BigDecimal totalNetoMerchandise = totalBruto.subtract(totalDiscountGlobal);
         BigDecimal totalFinalCharged = totalNetoMerchandise.add(totalSurcharge);
 
-        BillingSequenceResult sequenceResult = generateNextSequence(branch.id(), request.invoiceType());
-
         // 6. Guardado en Base de Datos
         Sale saleToSave = new Sale(
                 null,
@@ -279,16 +262,6 @@ public class SaleService implements CreateSaleUseCase {
                 finalClientId,
                 activeSessionId,
                 clientName,
-
-                // --- RELLENAMOS LOS NUEVOS CAMPOS DEL DOMINIO CON NULL POR AHORA ---
-                sequenceResult.invoiceType(),
-                sequenceResult.series(),
-                sequenceResult.correlative(),
-                "PENDIENTE", // Estado SUNAT inicial
-                null, // xmlUrl
-                null, // cdrUrl
-                // ------------------------------------------------------------------
-
                 totalBruto,
                 totalDiscountGlobal,
                 new BigDecimal("0.18"),
@@ -300,8 +273,7 @@ public class SaleService implements CreateSaleUseCase {
         );
 
         Sale savedSale = salesRepositoryPort.save(saleToSave);
-        Long saleId = savedSale.id(); // <-- FIX 1: Guardamos el ID
-        log.info("✅ Venta Guardada con ID: {}", saleId);
+        log.info("✅ Venta Guardada con ID: {}", savedSale.id());
 
         paymentsToRegister.forEach((method, amount) -> {
             if (amount.compareTo(BigDecimal.ZERO) > 0) {
@@ -310,51 +282,13 @@ public class SaleService implements CreateSaleUseCase {
                         request.userId(),
                         "VENTA",
                         amount,
-                        "Venta " + method + " #" + saleId, // <-- Usamos la variable fija
+                        "Venta " + method + " #" + savedSale.id(),
                         method,
-                        saleId, // <-- Usamos la variable fija
+                        savedSale.id(),
                         null
                 );
             }
         });
-
-        // =================================================================================
-        // 7. ENVÍO A SUNAT (Conectando el motor de la Etapa 3)
-        // =================================================================================
-        if (request.invoiceType() != null && !request.invoiceType().equals("00")) {
-            try {
-                ElectronicInvoiceCommand sunatCommand = new ElectronicInvoiceCommand(
-                        savedSale,
-                        companyRuc, // RUC de tu Empresa
-                        companyName,
-                        companyAddress
-                );
-
-                log.info("Enviando comprobante a SUNAT...");
-                ElectronicInvoiceResult sunatResult = electronicInvoicingPort.sendInvoice(sunatCommand);
-
-                // FIX 2: Usamos una variable nueva (updatedSale) para no alterar savedSale
-                Sale updatedSale = salesRepositoryPort.save(new Sale(
-                        savedSale.id(), savedSale.saleDate(), savedSale.branchId(), savedSale.userId(),
-                        savedSale.clientId(), savedSale.cashSessionId(), savedSale.clientFullname(),
-                        savedSale.invoiceType(), savedSale.series(), savedSale.correlative(),
-
-                        sunatResult.sunatStatus(),
-                        sunatResult.xmlUrl(),
-                        sunatResult.cdrUrl(),
-
-                        savedSale.totalAmount(), savedSale.totalDiscount(), savedSale.igvRate(),
-                        savedSale.paymentSurcharge(), savedSale.totalFinalCharged(), savedSale.paymentMethod(),
-                        savedSale.items(), savedSale.payments()
-                ));
-
-                log.info("✅ Resultado SUNAT: {}", sunatResult.message());
-
-            } catch (Exception e) {
-                log.error("❌ Fallo en el envío a SUNAT. El comprobante queda PENDIENTE: {}", e.getMessage());
-            }
-        }
-        // =================================================================================
 
         // 8. Post-Venta (Lealtad)
         try {
@@ -399,9 +333,6 @@ public class SaleService implements CreateSaleUseCase {
                 sellerName,
                 clientName,
                 clientDNI,
-                savedSale.invoiceType(),
-                savedSale.series(),
-                savedSale.correlative(),
                 totalBruto,
                 totalDiscountGlobal,
                 totalSurcharge,
@@ -479,18 +410,14 @@ public class SaleService implements CreateSaleUseCase {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("No existe registro de botella decantada para inicializar."));
 
-        log.info("    Botella Decantada encontrada: ID {}, Status: {}, Remanente Actual: {}ml",
-                decantBottle.id(), decantBottle.status(), decantBottle.remainingVolumeMl());
-
         Product product = productRepositoryPort.findById(dp.productId())
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado"));
 
         // Verificación de estado agotado previo
-        if ("DECANT_AGOTADA".equalsIgnoreCase(decantBottle.status()) || decantBottle.remainingVolumeMl() == 0) {
+        if ("DECANT_AGOTADA".equalsIgnoreCase(decantBottle.status()) || decantBottle.remainingVolumeMl() <= 0) {
             log.info("    ⚠️ Botella estaba AGOTADA. Iniciando reabastecimiento forzoso...");
             replenishDecantBottle(decantBottle, userId);
 
-            // CORRECCIÓN CRÍTICA: Recargar la entidad desde la BD tras el reabastecimiento
             decantBottle = bottleRepositoryPort.findById(decantBottle.id())
                     .orElseThrow(() -> new RuntimeException("Error recargando botella tras replenish"));
             log.info("    ✅ Botella Recargada. Nuevo Remanente: {}ml", decantBottle.remainingVolumeMl());
@@ -498,57 +425,48 @@ public class SaleService implements CreateSaleUseCase {
 
         int volumeNeeded = dp.volumeMl() * req.quantity();
         int currentRem = decantBottle.remainingVolumeMl();
-
-        log.info("    Calculando: Se necesitan {}ml. Hay disponible {}ml", volumeNeeded, currentRem);
+        int finalRemaining = 0;
 
         if (currentRem < volumeNeeded) {
             log.info("    >> ESCENARIO A: Stock insuficiente. Realizando consumo split.");
             int volumeDeficit = volumeNeeded - currentRem;
 
-            log.info("       1. Consumiendo remanente de {}ml de botella ID {}", currentRem, decantBottle.id());
             registerInventoryMovement(decantBottle.id(), currentRem, "ML", userId);
 
-            log.info("       2. Reabasteciendo desde botella sellada...");
             replenishDecantBottle(decantBottle, userId);
             Bottle refreshedBottle = bottleRepositoryPort.findById(decantBottle.id()).orElseThrow();
 
-            int finalRemaining = refreshedBottle.remainingVolumeMl() - volumeDeficit;
-            log.info("       3. Consumiendo déficit de {}ml. Remanente final será: {}ml", volumeDeficit, finalRemaining);
+            finalRemaining = refreshedBottle.remainingVolumeMl() - volumeDeficit;
 
             bottleRepositoryPort.save(new Bottle(
                     refreshedBottle.id(), refreshedBottle.productId(), whId,
                     finalRemaining <= 0 ? "DECANT_AGOTADA" : "DECANTADA",
-                    refreshedBottle.barcode(), refreshedBottle.volumeMl(),
+                    refreshedBottle.barcode(),
+                    refreshedBottle.volumeMl(),
                     finalRemaining,
                     1
             ));
 
-
-        } if (currentRem-volumeNeeded == 0){
-
+        } else if (currentRem == volumeNeeded) {
+            log.info("    >> ESCENARIO EXACTO: El consumo deja la botella en 0.");
             bottleRepositoryPort.save(new Bottle(
-                    decantBottle.id(),
-                    decantBottle.productId(),
-                    whId,
-                    "DECANT_AGOTADA",
-                    decantBottle.barcode(),
-                    0,
-                    0,
-                    0
+                    decantBottle.id(), decantBottle.productId(), whId,
+                    "DECANT_AGOTADA", decantBottle.barcode(),
+                    decantBottle.volumeMl(), // La capacidad original se mantiene
+                    0,                       // Remanente en 0
+                    0                        // Cantidad en 0
             ));
 
-        } else{
+        } else {
             log.info("    >> ESCENARIO B: Stock suficiente.");
-            int nextRemaining = currentRem - volumeNeeded;
+            // CORRECCIÓN MATEMÁTICA AQUÍ
+            finalRemaining = currentRem - volumeNeeded;
 
             bottleRepositoryPort.save(new Bottle(
-                    decantBottle.id(),
-                    decantBottle.productId(),
-                    whId,
-                    nextRemaining == 0 ? "DECANT_AGOTADA" : "DECANTADA",
-                    decantBottle.barcode(),
+                    decantBottle.id(), decantBottle.productId(), whId,
+                    "DECANTADA", decantBottle.barcode(),
                     decantBottle.volumeMl(),
-                    nextRemaining,
+                    finalRemaining, // AHORA SÍ GUARDAMOS EL VALOR CORRECTO
                     1
             ));
         }
@@ -563,71 +481,65 @@ public class SaleService implements CreateSaleUseCase {
         Long whId = targetDecantBottle.warehouseId();
         Long productId = targetDecantBottle.productId();
 
-        log.info("=== REPLENISH LOGIC START ===");
-        log.info("Target Decant ID: {}, ProductID: {}, WarehouseID: {}", targetDecantBottle.id(), productId, whId);
+        log.info("=== INICIANDO REABASTECIMIENTO DE DECANT ===");
 
-        // 1. Búsqueda de candidatos (Igual que antes)
         List<Bottle> candidates = bottleRepositoryPort.findAllByProductId(productId);
 
+        // 1. Buscamos el lote de botellas selladas
         Bottle sealedBottle = candidates.stream()
                 .filter(b -> b.warehouseId().equals(whId) &&
                         "SELLADA".equalsIgnoreCase(b.status() != null ? b.status().trim() : "") &&
                         b.quantity() > 0)
                 .findFirst()
-                .orElseThrow(() -> {
-                    log.error("❌ ERROR: No hay stock SELLADO para reponer.");
-                    return new RuntimeException("No hay stock SELLADO para reponer el Decant");
-                });
-
-        log.info("✅ Candidata seleccionada: Botella ID {}", sealedBottle.id());
+                .orElseThrow(() -> new RuntimeException("No hay stock SELLADO para reponer el Decant"));
 
         Product product = productRepositoryPort.findById(productId)
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado al reabastecer"));
 
-        // B. Obtenemos el volumen oficial (Ej: 100ml, 750ml)
-        // Asumo que tu entidad Product tiene un método volumeMl() o similar.
+        // Capacidad de 1 sola botella (Ej: 100ml)
         int productOfficialVolume = product.volumeProductsMl();
 
         // ---------------------------------------------------------------
-        // 2. Actualizar la SELLADA (Restar 1 y ajustar volúmenes si es 0)
+        // 2. Actualizar el LOTE SELLADO (Restar 1 frasco y su volumen)
         // ---------------------------------------------------------------
         int newSealedQty = sealedBottle.quantity() - 1;
-        boolean isDepleted = newSealedQty == 0; // ¿Se acabó?
-        int newVolumenSellada = sealedBottle.volumeMl()-productOfficialVolume;
+        boolean isDepleted = newSealedQty <= 0;
+
+        // 💡 CORRECCIÓN AQUÍ: Como guardas el volumen acumulado (Ej: 200ml),
+        // al sacar un frasco, le restamos sus 100ml correspondientes.
+        int newVolume = isDepleted ? 0 : (sealedBottle.volumeMl() - productOfficialVolume);
+        int newRemaining = isDepleted ? 0 : (sealedBottle.remainingVolumeMl() - productOfficialVolume);
 
         bottleRepositoryPort.save(new Bottle(
                 sealedBottle.id(),
                 sealedBottle.productId(),
                 whId,
-                isDepleted ? "AGOTADA" : "SELLADA", // Nuevo Estado
+                isDepleted ? "AGOTADA" : "SELLADA",
                 sealedBottle.barcode(),
-                isDepleted ? 0 : newVolumenSellada,
-                isDepleted ? 0 : newVolumenSellada,
-                newSealedQty
+                newVolume,      // <--- AHORA SÍ RESTA LOS 100ml (Queda 100)
+                newRemaining,   // <--- AHORA SÍ RESTA LOS 100ml (Queda 100)
+                newSealedQty    // <--- Baja a 1 frasco
         ));
 
-        log.info("Stock Sellado actualizado. Nueva cantidad: {}. Volúmenes en 0? {}", newSealedQty, isDepleted);
-
         registerInventoryMovement(sealedBottle.id(), 1, "UNIT", userId);
+        log.info("Lote Sellado actualizado. Quedan {} frascos con {}ml totales", newSealedQty, newRemaining);
 
-
-
-        log.info("Recargando Decant ID {}. Volumen Oficial del Producto: {}ml",
-                targetDecantBottle.id(), productOfficialVolume);
-
+        // ---------------------------------------------------------------
+        // 3. Recargar el Decant
+        // ---------------------------------------------------------------
         Bottle refreshedBottle = new Bottle(
                 targetDecantBottle.id(),
                 productId,
                 whId,
                 "DECANTADA",
                 targetDecantBottle.barcode(),
-                productOfficialVolume, // CAPACIDAD: Viene del Producto
-                productOfficialVolume, // REMANENTE: Empieza Lleno igual al producto
+                productOfficialVolume, // Nace con la capacidad de 1 frasco (100ml)
+                productOfficialVolume, // Está lleno (100ml)
                 1
         );
 
         bottleRepositoryPort.save(refreshedBottle);
-        log.info("=== REPLENISH LOGIC END ===");
+        log.info("=== REABASTECIMIENTO COMPLETADO ===");
     }
 
     private void registerInventoryMovement(Long bottleId, Integer qty, String unit, Long userId) {
@@ -777,28 +689,4 @@ public class SaleService implements CreateSaleUseCase {
                 .findFirst()
                 .orElse(defaultValue);
     }
-
-    private BillingSequenceResult generateNextSequence(Long branchId, String invoiceType) {
-        // Si no mandan tipo, o mandan "00" (ticket interno), no generamos serie legal
-        if (invoiceType == null || invoiceType.trim().isEmpty() || "00".equals(invoiceType)) {
-            return new BillingSequenceResult("00", null, null);
-        }
-
-        var sequenceOpt = billingSequenceRepository.findByBranchIdAndInvoiceType(branchId, invoiceType);
-
-        if (sequenceOpt.isEmpty()) {
-            throw new RuntimeException("No existe configuración de facturación para la Sede " + branchId + " y tipo " + invoiceType);
-        }
-
-        var sequence = sequenceOpt.get();
-        int nextCorrelative = sequence.getCurrentCorrelative() + 1;
-
-        // Guardamos el nuevo número en la BD para que el siguiente ticket use el próximo
-        sequence.setCurrentCorrelative(nextCorrelative);
-        billingSequenceRepository.save(sequence);
-
-        return new BillingSequenceResult(invoiceType, sequence.getSeries(), nextCorrelative);
-    }
-
-    private record BillingSequenceResult(String invoiceType, String series, Integer correlative) {}
 }

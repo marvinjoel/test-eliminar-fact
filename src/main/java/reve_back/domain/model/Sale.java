@@ -15,15 +15,6 @@ public record Sale(
 
         String clientFullname,
 
-        // --- CAMPOS FISCALES (SUNAT) ---
-        String invoiceType,
-        String series,
-        Integer correlative,
-        String sunatStatus,
-        String xmlUrl,
-        String cdrUrl,
-        // -------------------------------
-
         // --- FINANZAS (Nombres idénticos a SaleEntity) ---
         BigDecimal totalAmount,        // Suma bruta de productos (Unit Price * Quantity)
         BigDecimal totalDiscount,      // Suma total de descuentos (System + Manual)

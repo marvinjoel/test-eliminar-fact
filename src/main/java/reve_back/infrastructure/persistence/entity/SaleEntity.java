@@ -25,26 +25,6 @@ public class SaleEntity {
     @CreationTimestamp
     private LocalDateTime saleDate;
 
-    // --- CAMPOS PARA FACTURACIÓN (SUNAT) ---
-    @Column(name = "invoice_type", length = 2)
-    private String invoiceType; // "03" = Boleta, "01" = Factura, "00" = Ticket Interno
-
-    @Column(name = "series", length = 4)
-    private String series; // Ej: "B001", "F001"
-
-    @Column(name = "correlative")
-    private Integer correlative; // Ej: 1, 2, 3... (Se formatea luego a 00000001)
-
-    @Column(name = "sunat_status", length = 20)
-    private String sunatStatus; // "PENDIENTE", "ENVIADO", "ACEPTADO", "RECHAZADO"
-
-    @Column(name = "xml_url")
-    private String xmlUrl; // Ruta donde guardaremos el XML generado
-
-    @Column(name = "cdr_url")
-    private String cdrUrl; // Ruta del archivo de respuesta de SUNAT
-    // ----------------------------------------------
-
     @Column(name = "total_amount", nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
 

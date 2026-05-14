@@ -33,16 +33,8 @@ public class SaleDtoMapper {
 
                 entity.getCashSession() != null ? entity.getCashSession().getId() : null,
 
-                entity.getClient() != null ? entity.getClient().getFullname() : "Cliente Casual",
 
-                // --- CAMPOS FISCALES NUEVOS ---
-                entity.getInvoiceType(),
-                entity.getSeries(),
-                entity.getCorrelative(),
-                entity.getSunatStatus(),
-                entity.getXmlUrl(),
-                entity.getCdrUrl(),
-                // ------------------------------
+                entity.getClient() != null ? entity.getClient().getFullname() : "Cliente Casual",
 
                 // Finanzas
                 entity.getTotalAmount(),
@@ -115,16 +107,6 @@ public class SaleDtoMapper {
         SaleEntity entity = SaleEntity.builder()
                 .id(domain.id())
                 .saleDate(domain.saleDate())
-
-                // --- CAMPOS FISCALES NUEVOS ---
-                .invoiceType(domain.invoiceType())
-                .series(domain.series())
-                .correlative(domain.correlative())
-                .sunatStatus(domain.sunatStatus())
-                .xmlUrl(domain.xmlUrl())
-                .cdrUrl(domain.cdrUrl())
-                // ------------------------------
-
                 .totalAmount(domain.totalAmount())
                 .totalDiscount(domain.totalDiscount())
                 .igvRate(domain.igvRate())
